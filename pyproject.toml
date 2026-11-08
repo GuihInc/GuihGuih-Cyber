@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guihguih-cyber"
-version = "0.1.0"
+version = "0.2.0"
 description = "Scanner local explicável do GuihGuih Cyber (M1)"
 requires-python = ">=3.12"
 dependencies = ["PySide6-Essentials>=6.7,<7", "watchdog>=4,<7"]
