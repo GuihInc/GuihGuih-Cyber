@@ -9,9 +9,11 @@ AppVersion={#AppVersion}
 AppPublisher=GuihInc
 DefaultDirName={localappdata}\Programs\GuihGuih Cyber
 DefaultGroupName=GuihGuih Cyber
-OutputDir=dist
+OutputDir=..\dist
 OutputBaseFilename=GuihGuihCyber-Setup
-ArchitecturesInstallIn64BitMode=x64
+SetupIconFile=..\build\branding\app.ico
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\GuihGuihCyber.exe
 Compression=lzma2
@@ -19,7 +21,7 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Files]
-Source: "dist\GuihGuihCyber.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\GuihGuihCyber.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\GuihGuih Cyber"; Filename: "{app}\GuihGuihCyber.exe"
@@ -30,4 +32,3 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; Flags: un
 
 [Run]
 Filename: "{app}\GuihGuihCyber.exe"; Description: "Abrir GuihGuih Cyber"; Flags: postinstall nowait skipifsilent
-

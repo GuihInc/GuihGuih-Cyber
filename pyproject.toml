@@ -23,4 +23,6 @@ addopts = "-ra"
 [tool.setuptools.packages.find]
 include = ["guihguih_cyber*"]
 
+[tool.setuptools.package-data]
+guihguih_cyber = ["assets/logo.png"]
 

@@ -2,9 +2,12 @@
 
 import sys
 import threading
+from os import environ
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QMainWindow, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QListWidget, QStackedWidget)
@@ -16,17 +19,22 @@ from .scanner import scan_path
 from .storage import HistoryStore
 
 
+LOGO_PATH = Path(__file__).with_name("assets") / "logo.png"
+
+
 class Signals(QObject):
     completed = Signal(dict)
     monitor_event = Signal(str)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, store=None):
         super().__init__()
         self.setWindowTitle("GuihGuih Cyber")
-        self.resize(1180, 760)
-        self.store = HistoryStore()
+        self.setWindowIcon(QIcon(str(LOGO_PATH)))
+        self.resize(1120, 730)
+        self.setMinimumSize(870, 625)
+        self.store = store if store is not None else HistoryStore()
         self.quarantine = Quarantine(self.store)
         self.signals = Signals()
         self.signals.completed.connect(self.show_report)
@@ -38,29 +46,115 @@ class MainWindow(QMainWindow):
         self.refresh_quarantine()
 
     def _build(self):
-        central = QWidget(); outer = QHBoxLayout(central); outer.setContentsMargins(0, 0, 0, 0)
-        nav = QListWidget(); nav.setFixedWidth(220)
-        for label in ["Visão geral", "Verificação", "Monitoramento", "Quarentena", "Histórico", "GuihGuih AI", "Rede", "Ransomware", "Configurações"]: nav.addItem(label)
-        nav.setCurrentRow(0)
+        central = QWidget()
+        outer = QHBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        sidebar = QFrame()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(218)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(14, 22, 14, 18)
+        brand = QHBoxLayout()
+        brand.setSpacing(8)
+        brand.addWidget(self._logo(44))
+        brand_text = QVBoxLayout()
+        name = QLabel("GuihGuih")
+        name.setObjectName("brand")
+        edition = QLabel("C Y B E R")
+        edition.setObjectName("accent")
+        brand_text.addWidget(name)
+        brand_text.addWidget(edition)
+        brand.addLayout(brand_text, 1)
+        sidebar_layout.addLayout(brand)
+        sidebar_layout.addSpacing(22)
+        nav = QListWidget()
+        nav.setObjectName("navigation")
+        nav.addItems(["Visão geral", "Verificação", "Monitoramento", "Quarentena",
+                      "Histórico", "GuihGuih AI", "Rede", "Ransomware", "Configurações"])
+        nav.setAccessibleName("Navegação principal")
+        nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sidebar_layout.addWidget(nav, 1)
+        footer = QLabel("ANÁLISE LOCAL")
+        footer.setObjectName("sidebarFooter")
+        sidebar_layout.addWidget(footer)
         self.stack = QStackedWidget()
         nav.currentRowChanged.connect(self.stack.setCurrentIndex)
-        outer.addWidget(nav)
+        outer.addWidget(sidebar)
         outer.addWidget(self.stack, 1)
         self.setCentralWidget(central)
 
-        self.dashboard = QWidget(); lay = QVBoxLayout(self.dashboard); lay.setContentsMargins(32, 28, 32, 24)
-        lay.addWidget(self._title("Painel de proteção", "Estado real dos recursos locais"))
-        state = self._card("SCANNER LOCAL", "Disponível · análise manual", "Regras simples + SHA-256 · arquivos nunca são executados")
-        lay.addWidget(state)
-        row = QHBoxLayout(); self.quick_button = QPushButton("Verificação rápida"); self.quick_button.clicked.connect(lambda: self.choose_scan(folder=True)); row.addWidget(self.quick_button)
-        full = QPushButton("Verificação completa"); full.clicked.connect(self.scan_home); row.addWidget(full)
-        custom = QPushButton("Personalizada…"); custom.clicked.connect(lambda: self.choose_scan(folder=False)); row.addWidget(custom)
+        dashboard = QWidget()
+        overview = QVBoxLayout(dashboard)
+        overview.setContentsMargins(32, 26, 32, 24)
+        overview.setSpacing(16)
+        overview.addWidget(self._title("Visão geral", "Central de segurança local"))
+        hero = QFrame()
+        hero.setObjectName("hero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(26, 20, 22, 20)
+        hero_text = QVBoxLayout()
+        hero_text.setSpacing(10)
+        badge = QLabel("●  SCANNER DISPONÍVEL")
+        badge.setObjectName("badge")
+        hero_text.addWidget(badge, 0, Qt.AlignmentFlag.AlignLeft)
+        heading = QLabel("Verificação de arquivos")
+        heading.setObjectName("heroTitle")
+        hero_text.addWidget(heading)
+        description = QLabel("Analise arquivos e pastas com regras locais e SHA-256.")
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+        hero_text.addWidget(description)
+        open_scan = QPushButton("Abrir verificação  →")
+        open_scan.setObjectName("primary")
+        open_scan.setAccessibleName("Abrir página de verificação")
+        open_scan.clicked.connect(lambda: nav.setCurrentRow(1))
+        hero_text.addWidget(open_scan, 0, Qt.AlignmentFlag.AlignLeft)
+        hero_layout.addLayout(hero_text, 1)
+        hero_layout.addWidget(self._logo(156), 0, Qt.AlignmentFlag.AlignVCenter)
+        overview.addWidget(hero)
+        activity = self._card("ATIVIDADE", "Última verificação", "Consulte as sessões completas em Histórico.")
+        self.latest_scan = QLabel("Nenhuma verificação registrada.")
+        self.latest_scan.setObjectName("muted")
+        self.latest_scan.setWordWrap(True)
+        activity.layout().insertWidget(2, self.latest_scan)
+        overview.addWidget(activity)
+        tools_title = QLabel("Ferramentas locais")
+        tools_title.setObjectName("cardTitle")
+        overview.addWidget(tools_title)
+        shortcuts = QHBoxLayout()
+        shortcuts.setSpacing(10)
+        for index, title, description in (
+            (2, "Monitoramento", "Acompanhar pastas"),
+            (3, "Quarentena", "Gerenciar cópias"),
+            (4, "Histórico", "Consultar verificações"),
+        ):
+            shortcut = QPushButton(f"{title}\n{description}")
+            shortcut.setObjectName("shortcut")
+            shortcut.clicked.connect(lambda checked=False, index=index: nav.setCurrentRow(index))
+            shortcuts.addWidget(shortcut, 1)
+        overview.addLayout(shortcuts)
+        overview.addStretch()
+        self.stack.addWidget(dashboard)
+
+        scan_page = QWidget()
+        lay = QVBoxLayout(scan_page)
+        lay.setContentsMargins(32, 26, 32, 24)
+        lay.setSpacing(14)
+        lay.addWidget(self._title("Verificação", "Selecione um arquivo ou uma pasta para analisar."))
+        row = QHBoxLayout(); self.quick_button = QPushButton("Selecionar pasta…"); self.quick_button.clicked.connect(lambda: self.choose_scan(folder=True)); row.addWidget(self.quick_button)
+        self.quick_button.setObjectName("primary")
+        full = QPushButton("Verificar pasta pessoal"); full.clicked.connect(self.scan_home); row.addWidget(full)
+        custom = QPushButton("Selecionar arquivo…"); custom.clicked.connect(lambda: self.choose_scan(folder=False)); row.addWidget(custom)
         cancel = QPushButton("Cancelar"); cancel.clicked.connect(self.cancel.set); row.addWidget(cancel)
         lay.addLayout(row)
         self.summary = QLabel("Nenhuma verificação nesta sessão"); self.summary.setObjectName("muted"); lay.addWidget(self.summary)
         self.results = QTableWidget(0, 4); self.results.setHorizontalHeaderLabels(["Estado", "Arquivo", "SHA-256", "Detecção / motivo"]); self.results.horizontalHeader().setStretchLastSection(True); self.results.horizontalHeader().setSectionResizeMode(1, self.results.horizontalHeader().ResizeMode.Stretch); lay.addWidget(self.results, 1)
-        lay.addWidget(QLabel("Sem achados significa apenas que as regras locais não corresponderam; não prova que o arquivo é seguro."))
-        self.stack.addWidget(self.dashboard)
+        note = QLabel("Sem achados: nenhuma regra local correspondeu aos arquivos analisados.")
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        self.stack.addWidget(scan_page)
 
         self.monitor_page = QWidget(); ml = QVBoxLayout(self.monitor_page); ml.setContentsMargins(32,28,32,24); ml.addWidget(self._title("Monitoramento de pastas", "Somente caminhos adicionados explicitamente"))
         controls = QHBoxLayout(); add = QPushButton("Adicionar pasta"); add.clicked.connect(self.add_monitor_folder); controls.addWidget(add); start = QPushButton("Iniciar"); start.clicked.connect(self.start_monitor); controls.addWidget(start); stop = QPushButton("Parar"); stop.clicked.connect(self.monitor.stop); controls.addWidget(stop); ml.addLayout(controls)
@@ -78,7 +172,17 @@ class MainWindow(QMainWindow):
             else:
                 note = QLabel(self._feature_note(title)); note.setWordWrap(True); note.setObjectName("muted"); pl.addWidget(note)
             pl.addStretch(); self.stack.addWidget(page)
+        nav.setCurrentRow(0)
         self.setStyleSheet(STYLE)
+
+    def _logo(self, size):
+        label = QLabel()
+        label.setFixedSize(size, size)
+        label.setAccessibleName("Logo oficial do GuihGuih Cyber")
+        label.setPixmap(QPixmap(str(LOGO_PATH)).scaled(
+            size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        ))
+        return label
 
     def _title(self, title, subtitle):
         box = QWidget(); l = QVBoxLayout(box); l.setContentsMargins(0,0,0,12); h = QLabel(title); h.setObjectName("title"); s = QLabel(subtitle); s.setObjectName("muted"); l.addWidget(h); l.addWidget(s); return box
@@ -118,6 +222,12 @@ class MainWindow(QMainWindow):
     def refresh_history(self):
         if not hasattr(self, "history"): return
         rows=self.store.recent_scans(100); self.history.setRowCount(0)
+        if rows:
+            latest = rows[0]
+            state = " · cancelada" if latest["cancelled"] else ""
+            self.latest_scan.setText(
+                f"#{latest['id']} · {latest['files_scanned']} arquivos · {latest['findings']} achados{state}"
+            )
         for item in rows:
             row=self.history.rowCount(); self.history.insertRow(row)
             for col, key in enumerate(["id","started_at","root_path","files_scanned","findings"]): self.history.setItem(row,col,QTableWidgetItem(str(item[key])))
@@ -164,25 +274,62 @@ class MainWindow(QMainWindow):
 
 
 STYLE = """
-QWidget { background:#080f18; color:#e8f0f7; font-family:'Segoe UI'; font-size:13px; }
-QListWidget { background:#0b1420; border:0; padding:16px 10px; color:#9db0c4; }
-QListWidget::item { padding:13px 12px; border-radius:6px; }
-QListWidget::item:selected { background:#14283a; color:#78e7b0; }
-QLabel#title { font-size:28px; font-weight:700; color:#f0f6fb; }
-QLabel#muted { color:#8ca2b7; }
-QLabel#accent { color:#78e7b0; font-size:10px; font-weight:700; letter-spacing:2px; }
-QFrame#card { background:#101b29; border:1px solid #20364b; border-radius:9px; padding:14px; }
-QLabel#cardTitle { font-size:19px; font-weight:700; }
-QPushButton { background:#14283a; color:#dce8f2; border:1px solid #284058; border-radius:5px; padding:10px 14px; }
-QPushButton:hover { border-color:#78e7b0; }
-QHeaderView::section { background:#142235; color:#78e7b0; padding:8px; border:0; }
-QTableWidget { background:#0c1622; alternate-background-color:#101d2a; gridline-color:#203044; border:1px solid #203044; }
+QWidget { color:#ebf6ff; font-size:14px; }
+QMainWindow, QStackedWidget { background:#081320; }
+QFrame#sidebar { background:#091a2c; border-right:1px solid #173a53; }
+QLabel#brand { font-size:19px; font-weight:800; }
+QLabel#sidebarFooter { color:#a1bed2; font-size:11px; padding:10px; border-top:1px solid #23445a; }
+QListWidget { background:#0c1d30; border:1px solid #24475d; border-radius:8px; padding:5px; }
+QListWidget#navigation { background:transparent; border:0; padding:0; color:#b5cce0; }
+QListWidget::item { padding:9px 11px; border-radius:6px; }
+QListWidget::item:hover { background:#102e46; }
+QListWidget::item:selected { background:#133950; color:#83f1ff; }
+QListWidget::item:focus { border:1px solid #29d6ed; }
+QLabel#title { font-size:30px; font-weight:800; }
+QLabel#muted { color:#b1c8dc; }
+QLabel#accent { color:#43e1f2; font-size:11px; font-weight:700; }
+QLabel#badge {
+    background:#103b39; color:#80ffd1; border:1px solid #22675a; border-radius:9px;
+    padding:5px 9px; font-size:11px; font-weight:700;
+}
+QFrame#hero {
+    background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #103450,stop:1 #0a2035);
+    border:1px solid #2d7190; border-radius:16px;
+}
+QLabel#heroTitle { font-size:29px; font-weight:800; }
+QFrame#card { background:#102338; border:1px solid #23465f; border-radius:11px; padding:12px; }
+QLabel#cardTitle { font-size:18px; font-weight:700; }
+QPushButton { background:#15334c; color:#ebf6ff; border:1px solid #335b75; border-radius:8px; padding:10px 13px; }
+QPushButton:hover, QPushButton:focus { border-color:#43e1f2; }
+QPushButton:pressed { background:#204b62; }
+QPushButton#primary { background:#2be0f2; color:#062033; border-color:#2be0f2; font-weight:800; }
+QPushButton#primary:hover, QPushButton#primary:focus { background:#a0f9ff; border-color:#a0f9ff; }
+QPushButton#shortcut { background:#102338; text-align:left; padding:14px 12px; }
+QHeaderView::section { background:#15334c; color:#8defff; padding:8px; border:0; }
+QTableWidget { background:#0c1d30; alternate-background-color:#102539; gridline-color:#24475d; border:1px solid #24475d; selection-background-color:#194961; selection-color:#fff; }
+QMessageBox { background:#0c1d30; }
 """
 
 
 def main():
-    app = QApplication(sys.argv); window = MainWindow(); window.show(); sys.exit(app.exec())
+    startup_check = sys.argv[1:] == ["--check-startup"]
+    if startup_check:
+        environ["QT_QPA_PLATFORM"] = "offscreen"
+    app = QApplication([sys.argv[0]] if startup_check else sys.argv)
+    app.setApplicationName("GuihGuih Cyber")
+    app.setWindowIcon(QIcon(str(LOGO_PATH)))
+    if startup_check:
+        with TemporaryDirectory(prefix="guihguih-startup-") as directory:
+            window = MainWindow(HistoryStore(Path(directory) / "history.sqlite3"))
+            window.show()
+            app.processEvents()
+            if QPixmap(str(LOGO_PATH)).isNull():
+                raise SystemExit("Não foi possível carregar a logo oficial.")
+            window.close()
+        return
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__": main()
-

@@ -1,131 +1,260 @@
-name: Build and publish installers
+name: Build installers
 
 on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
   push:
     tags: ["v*"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      number: ${{ steps.package-version.outputs.number }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Validate package version
+        id: package-version
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          with Path("pyproject.toml").open("rb") as project_file:
+              version = tomllib.load(project_file)["project"]["version"]
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit("Expected a package version in the format X.Y.Z")
+          if os.environ["GITHUB_REF_TYPE"] == "tag" and os.environ["GITHUB_REF_NAME"] != f"v{version}":
+              raise SystemExit(f"The tag must match the package version: v{version}")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"number={version}", file=output)
+          PY
+
+  build-windows:
+    needs: version
+    runs-on: windows-2025
+    env:
+      APP_VERSION: ${{ needs.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -e ".[dev]"
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev]" "Pillow==13.0.0"
       - run: python -m pytest
-
-  build-windows:
-    needs: test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
+      - run: python packaging/make_icons.py
       - name: Build standalone executable
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name GuihGuihCyber --collect-all PySide6 desktop_launcher.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name GuihGuihCyber --icon build/branding/app.ico --add-data "guihguih_cyber/assets/logo.png:guihguih_cyber/assets" desktop_launcher.py
       - name: Build Windows installer
         shell: pwsh
-        env:
-          APP_VERSION: ${{ github.ref_name }}
         run: |
-          choco install innosetup --yes --no-progress
-          $version = $env:APP_VERSION.TrimStart('v')
-          iscc "/DAppVersion=$version" packaging/windows.iss
+          $compilerInstaller = Join-Path $env:RUNNER_TEMP 'innosetup.exe'
+          $compilerDir = Join-Path $env:RUNNER_TEMP 'InnoSetup'
+          $source = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe'
+          Invoke-WebRequest -Uri $source -OutFile $compilerInstaller
+          if ((Get-FileHash $compilerInstaller -Algorithm SHA256).Hash -ne '8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0') {
+              throw 'Inno Setup checksum mismatch'
+          }
+          $installation = Start-Process -FilePath $compilerInstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="{0}"' -f $compilerDir) -Wait -PassThru -WindowStyle Hidden
+          if ($installation.ExitCode -ne 0) { throw "Inno Setup installation failed ($($installation.ExitCode))" }
+          & (Join-Path $compilerDir 'ISCC.exe') "/DAppVersion=$env:APP_VERSION" packaging/windows.iss
+      - name: Check the installed executable
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'GuihGuihCyber-installed'
+          $installer = (Resolve-Path dist/GuihGuihCyber-Setup.exe).Path
+          $install = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="{0}"' -f $installDir) -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) { throw "App installer failed ($($install.ExitCode))" }
+          $app = Start-Process -FilePath (Join-Path $installDir 'GuihGuihCyber.exe') -ArgumentList '--check-startup' -PassThru -WindowStyle Hidden
+          if (-not $app.WaitForExit(90000)) {
+              Stop-Process -Id $app.Id -Force
+              throw 'App startup timed out'
+          }
+          if ($app.ExitCode -ne 0) { throw "App startup check failed ($($app.ExitCode))" }
       - name: Create checksums
         shell: pwsh
-        run: Get-ChildItem dist -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Set-Content dist/SHA256SUMS-windows.txt
+        run: |
+          Get-FileHash -Path dist/GuihGuihCyber.exe, dist/GuihGuihCyber-Setup.exe -Algorithm SHA256 |
+              ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } |
+              Set-Content -Encoding utf8 dist/SHA256SUMS-windows-x64.txt
       - uses: actions/upload-artifact@v7
         with:
-          name: release-windows
-          path: dist/*
+          name: release-windows-x64
+          if-no-files-found: error
+          path: |
+            dist/GuihGuihCyber.exe
+            dist/GuihGuihCyber-Setup.exe
+            dist/SHA256SUMS-windows-x64.txt
 
   build-linux:
-    needs: test
-    runs-on: ubuntu-latest
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      APP_VERSION: ${{ needs.version.outputs.number }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev]" "Pillow==13.0.0"
+      - run: python -m pytest
+      - name: Install Linux packaging and Qt prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential rpm cpio libgl1 libegl1 libxcb-cursor0 libxkbcommon-x11-0
+          sudo gem install --no-document fpm -v 1.18.0
+      - run: python packaging/make_icons.py
       - name: Build standalone executable
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name GuihGuihCyber --collect-all PySide6 desktop_launcher.py
-      - name: Build AppImage, DEB, and RPM
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name GuihGuihCyber --add-data "guihguih_cyber/assets/logo.png:guihguih_cyber/assets" desktop_launcher.py
+      - name: Build and check AppImage, DEB, and RPM
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p package-root/opt/guihguih-cyber package-root/usr/share/applications AppDir/usr/bin
-          mkdir -p package-root/usr/share/icons/hicolor/256x256/apps
-          install -m 0755 dist/GuihGuihCyber package-root/opt/guihguih-cyber/GuihGuihCyber
-          install -m 0755 dist/GuihGuihCyber AppDir/usr/bin/GuihGuihCyber
-          cp packaging/linux/guihguih-cyber.desktop package-root/usr/share/applications/
-          python packaging/linux/make_icon.py package-root/usr/share/icons/hicolor/256x256/apps/guihguih-cyber.png
-          cp packaging/linux/guihguih-cyber.desktop AppDir/
-          python packaging/linux/make_icon.py AppDir/guihguih-cyber.png
-          sed -i 's#^Exec=.*#Exec=AppRun#' AppDir/guihguih-cyber.desktop
-          cp packaging/linux/AppRun AppDir/
-          chmod +x AppDir/AppRun
-          sudo apt-get update
-          sudo apt-get install -y ruby ruby-dev build-essential rpm
-          sudo gem install --no-document fpm
-          fpm -s dir -t deb -n guihguih-cyber -v "$VERSION" --architecture amd64 --description "GuihGuih Cyber desktop security scanner" -C package-root .
-          fpm -s dir -t rpm -n guihguih-cyber -v "$VERSION" --architecture x86_64 --description "GuihGuih Cyber desktop security scanner" -C package-root .
-          curl -fL --retry 3 -o appimagetool "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
-          chmod +x appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir "GuihGuihCyber-${VERSION}-x86_64.AppImage"
-          mv ./*.deb ./*.rpm *.AppImage dist/
+          install -Dm755 dist/GuihGuihCyber package-root/opt/guihguih-cyber/GuihGuihCyber
+          install -Dm644 packaging/linux/guihguih-cyber.desktop package-root/usr/share/applications/guihguih-cyber.desktop
+          install -Dm644 build/branding/guihguih-cyber.png package-root/usr/share/icons/hicolor/256x256/apps/guihguih-cyber.png
+          install -Dm755 dist/GuihGuihCyber AppDir/usr/bin/GuihGuihCyber
+          install -Dm755 packaging/linux/AppRun AppDir/AppRun
+          sed -i 's/\r$//' AppDir/AppRun
+          install -Dm644 build/branding/guihguih-cyber.png AppDir/guihguih-cyber.png
+          sed 's#^Exec=.*#Exec=AppRun#' packaging/linux/guihguih-cyber.desktop > AppDir/guihguih-cyber.desktop
+
+          deb="$PWD/dist/guihguih-cyber_${APP_VERSION}_amd64.deb"
+          rpm="$PWD/dist/guihguih-cyber-${APP_VERSION}-1.x86_64.rpm"
+          image="$PWD/dist/GuihGuihCyber-${APP_VERSION}-x86_64.AppImage"
+          fpm -s dir -t deb -n guihguih-cyber -v "$APP_VERSION" -a amd64 \
+            -d libgl1 -d libegl1 -d libxcb-cursor0 -d libxkbcommon-x11-0 \
+            -p "$deb" --description "GuihGuih Cyber desktop security scanner" -C package-root opt usr
+          fpm -s dir -t rpm -n guihguih-cyber -v "$APP_VERSION" -a x86_64 \
+            -d libglvnd-glx -d libglvnd-egl -d xcb-util-cursor -d libxkbcommon-x11 \
+            -p "$rpm" --description "GuihGuih Cyber desktop security scanner" -C package-root opt usr
+
+          mkdir -p build/appimage-tools
+          (
+            cd build/appimage-tools
+            curl -fsSL --retry 3 -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+            curl -fsSL --retry 3 -o runtime-x86_64 https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+            printf '%s\n' \
+              'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool' \
+              '2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  runtime-x86_64' \
+              | sha256sum --check
+            chmod +x appimagetool
+            ./appimagetool --appimage-extract >/dev/null
+            ARCH=x86_64 squashfs-root/AppRun --runtime-file "$PWD/runtime-x86_64" ../../AppDir "$image"
+          )
+
+          deb_root="$RUNNER_TEMP/deb-check"
+          rpm_root="$RUNNER_TEMP/rpm-check"
+          mkdir -p "$deb_root" "$rpm_root"
+          dpkg-deb --extract "$deb" "$deb_root"
+          rpm2cpio "$rpm" | (cd "$rpm_root" && cpio -id --quiet)
+          timeout 90s "$deb_root/opt/guihguih-cyber/GuihGuihCyber" --check-startup
+          timeout 90s "$rpm_root/opt/guihguih-cyber/GuihGuihCyber" --check-startup
+          APPIMAGE_EXTRACT_AND_RUN=1 timeout 90s "$image" --check-startup
       - name: Create checksums
-        run: (cd dist && sha256sum * > SHA256SUMS-linux.txt)
+        run: (cd dist && sha256sum *.AppImage *.deb *.rpm > SHA256SUMS-linux-x64.txt)
       - uses: actions/upload-artifact@v7
         with:
-          name: release-linux
-          path: dist/*
+          name: release-linux-x64
+          if-no-files-found: error
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+            dist/SHA256SUMS-linux-x64.txt
 
   build-macos:
-    needs: test
-    runs-on: macos-latest
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ needs.version.outputs.number }}
+      APP_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev]" "Pillow==13.0.0"
+      - run: python -m pytest
+      - run: python packaging/make_icons.py
       - name: Build macOS app bundle
-        run: pyinstaller --noconfirm --clean --onedir --windowed --name GuihGuihCyber --osx-bundle-identifier com.guihinc.guihguihcyber --collect-all PySide6 desktop_launcher.py
+        run: pyinstaller --noconfirm --clean --onedir --windowed --name GuihGuihCyber --osx-bundle-identifier com.guihinc.guihguihcyber --icon build/branding/app.icns --add-data "guihguih_cyber/assets/logo.png:guihguih_cyber/assets" desktop_launcher.py
+      - name: Check packaged app startup
+        run: |
+          python - <<'PY'
+          import subprocess
+          subprocess.run(["dist/GuihGuihCyber.app/Contents/MacOS/GuihGuihCyber", "--check-startup"], check=True, timeout=90)
+          PY
       - name: Package DMG, PKG, and app bundle
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          ditto -c -k --sequesterRsrc --keepParent dist/GuihGuihCyber.app "dist/GuihGuihCyber-${VERSION}-macos.app.zip"
-          hdiutil create -volname "GuihGuih Cyber" -srcfolder dist/GuihGuihCyber.app -ov -format UDZO "dist/GuihGuihCyber-${VERSION}-macos.dmg"
-          pkgbuild --component dist/GuihGuihCyber.app --install-location /Applications --identifier com.guihinc.guihguihcyber --version "$VERSION" "dist/GuihGuihCyber-${VERSION}-macos.pkg"
+          output="dist/GuihGuihCyber-${APP_VERSION}-macos-${APP_ARCH}"
+          mkdir -p build/dmg-root
+          ditto dist/GuihGuihCyber.app build/dmg-root/GuihGuihCyber.app
+          ln -s /Applications build/dmg-root/Applications
+          ditto -c -k --sequesterRsrc --keepParent dist/GuihGuihCyber.app "$output.app.zip"
+          hdiutil create -volname "GuihGuih Cyber" -srcfolder build/dmg-root -ov -format UDZO "$output.dmg"
+          pkgbuild --component dist/GuihGuihCyber.app --install-location /Applications --identifier com.guihinc.guihguihcyber --version "$APP_VERSION" "$output.pkg"
+          hdiutil verify "$output.dmg"
+          pkgutil --payload-files "$output.pkg" > build/pkg-payload.txt
+          grep -F 'GuihGuihCyber.app/Contents/MacOS/GuihGuihCyber' build/pkg-payload.txt
       - name: Create checksums
-        run: (cd dist && find . -maxdepth 1 -type f ! -name 'SHA256SUMS-macos.txt' -print0 | xargs -0 shasum -a 256 > SHA256SUMS-macos.txt)
+        run: (cd dist && shasum -a 256 *.app.zip *.dmg *.pkg > "SHA256SUMS-macos-${APP_ARCH}.txt")
       - uses: actions/upload-artifact@v7
         with:
-          name: release-macos
-          path: dist/*
+          name: release-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            dist/*.app.zip
+            dist/*.dmg
+            dist/*.pkg
+            dist/SHA256SUMS-macos-*.txt
 
   publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [build-windows, build-linux, build-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v7
         with:
+          pattern: release-*
           path: release-assets
           merge-multiple: true
       - name: Publish GitHub Release
@@ -133,6 +262,5 @@ jobs:
         with:
           name: GuihGuih Cyber ${{ github.ref_name }}
           generate_release_notes: true
-          files: release-assets/**
-
-
+          fail_on_unmatched_files: true
+          files: release-assets/*
