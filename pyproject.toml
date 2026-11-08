@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guihguih-cyber"
+version = "0.1.0"
+description = "Scanner local explicável do GuihGuih Cyber (M1)"
+requires-python = ">=3.12"
+dependencies = ["PySide6-Essentials>=6.7,<7", "watchdog>=4,<7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pytest-cov>=5,<7", "pyinstaller>=6,<7"]
+signatures = ["yara-python>=4.5,<5"]
+
+[project.scripts]
+guihguih-cyber = "guihguih_cyber.desktop:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools.packages.find]
+include = ["guihguih_cyber*"]
+
+[tool.setuptools.package-data]
+guihguih_cyber = ["assets/logo.png"]
+
