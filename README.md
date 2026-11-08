@@ -41,3 +41,4 @@ Os testes usam fixtures sintéticas. O marcador EICAR utilizado é texto inofens
 - O workflow `.github/workflows/build.yml` executa testes e gera artefatos PyInstaller em runners de Windows, Linux e macOS. Esses builds ainda não foram executados nesta máquina.
 - Instaladores `.msi`/Setup, `.AppImage`, `.deb`, `.rpm`, `.dmg` e `.pkg` não foram produzidos. Assinatura/notarização exigem credenciais específicas.
 - Testado localmente apenas no Windows. Linux e macOS aguardam execução nos runners.
+
