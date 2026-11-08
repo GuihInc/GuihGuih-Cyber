@@ -61,7 +61,7 @@ class FeatureTests(unittest.TestCase):
             time.sleep(.12)
         finally:
             monitor.stop()
-        self.assertIn(file, events)
+        self.assertTrue(any(event.resolve() == file.resolve() for event in events))
 
     def test_quarantine_refuses_symlink(self):
         source = self.root / "sample.txt"
