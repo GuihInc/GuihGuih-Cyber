@@ -1,0 +1,66 @@
+name: Audit published v0.1.0 packages
+
+on:
+  push:
+    branches: [codex/release-trust-audit-v0.1.0]
+
+permissions:
+  contents: read
+
+jobs:
+  clamav:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch the exact public release assets
+        shell: bash
+        run: |
+          mkdir packages
+          cd packages
+          cat > SHA256SUMS <<'SUMS'
+          53f5c11e98adf4ca753a0670026b975ed4c15feccf6c25acc87dca3591462f41  guihguih-cyber-0.1.0-1.x86_64.rpm
+          d3cc22dd02573b0d1bbcc566329d2fbccecf2aa49fd6a4fd09840329477b29f5  guihguih-cyber_0.1.0_amd64.deb
+          6d8821ed0959cdcd3c99181bcd6509f9bf283a6ba43a5286aab3766b594b5fd8  GuihGuihCyber-0.1.0-macos-arm64.app.zip
+          aa32f09c41e7e8ccee105445c54af0611168fef6f741d7508c2766eb1b5dccfe  GuihGuihCyber-0.1.0-macos-arm64.dmg
+          f93168a5e34379e95a4e1de26f393640b1deb90e77621c371dfd296df748e6d6  GuihGuihCyber-0.1.0-macos-arm64.pkg
+          79a8a257d18904f3d36b02aed2df894d47936d184ac47abb3092b1ccc030cd1f  GuihGuihCyber-0.1.0-macos-x86_64.app.zip
+          caa601851f1483046f518bfc306049cf2571f828442e7c2b118e63224130b92b  GuihGuihCyber-0.1.0-macos-x86_64.dmg
+          2d516feab4c2881844655999c6478473a30073ba34d459d2144f91e679499a10  GuihGuihCyber-0.1.0-macos-x86_64.pkg
+          7de68f16c02f51d59f0bb3ea56aab3dd13df50a2af8b95fd1f6ec42b9d2e8edd  GuihGuihCyber-0.1.0-x86_64.AppImage
+          SUMS
+          while read -r digest name; do
+            curl -fsSL --retry 2 -o "$name" "https://github.com/GuihInc/GuihGuih-Cyber/releases/download/v0.1.0/$name"
+          done < SHA256SUMS
+          sha256sum --check SHA256SUMS
+          rm SHA256SUMS
+      - name: Scan with ClamAV official signatures
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clamav
+          mkdir -p "$RUNNER_TEMP/clam-db"
+          printf '%s\n' 'DatabaseMirror database.clamav.net' > "$RUNNER_TEMP/freshclam.conf"
+          freshclam --quiet --config-file="$RUNNER_TEMP/freshclam.conf" --datadir="$RUNNER_TEMP/clam-db"
+          clamscan --database="$RUNNER_TEMP/clam-db" --official-db-only=yes --max-filesize=400M --max-scansize=800M --max-files=20000 --recursive packages
+
+  gatekeeper:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - name: Assess Apple Silicon app and installer signature
+        shell: bash
+        run: |
+          mkdir audit
+          cd audit
+          for name in GuihGuihCyber-0.1.0-macos-arm64.app.zip GuihGuihCyber-0.1.0-macos-arm64.pkg; do
+            curl -fsSL --retry 2 -o "$name" "https://github.com/GuihInc/GuihGuih-Cyber/releases/download/v0.1.0/$name"
+          done
+          cat > SHA256SUMS <<'SUMS'
+          6d8821ed0959cdcd3c99181bcd6509f9bf283a6ba43a5286aab3766b594b5fd8  GuihGuihCyber-0.1.0-macos-arm64.app.zip
+          f93168a5e34379e95a4e1de26f393640b1deb90e77621c371dfd296df748e6d6  GuihGuihCyber-0.1.0-macos-arm64.pkg
+          SUMS
+          shasum -a 256 -c SHA256SUMS
+          ditto -x -k GuihGuihCyber-0.1.0-macos-arm64.app.zip .
+          codesign -dv --verbose=2 GuihGuihCyber.app 2>&1 || true
+          spctl --assess --type execute --verbose=4 GuihGuihCyber.app || echo "Gatekeeper rejected the application."
+          pkgutil --check-signature GuihGuihCyber-0.1.0-macos-arm64.pkg || echo "Installer signature unavailable or invalid."
