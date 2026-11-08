@@ -112,7 +112,7 @@ jobs:
           hdiutil create -volname "GuihGuih Cyber" -srcfolder dist/GuihGuihCyber.app -ov -format UDZO "dist/GuihGuihCyber-${VERSION}-macos.dmg"
           pkgbuild --component dist/GuihGuihCyber.app --install-location /Applications --identifier com.guihinc.guihguihcyber --version "$VERSION" "dist/GuihGuihCyber-${VERSION}-macos.pkg"
       - name: Create checksums
-        run: (cd dist && shasum -a 256 * > SHA256SUMS-macos.txt)
+        run: (cd dist && find . -maxdepth 1 -type f ! -name 'SHA256SUMS-macos.txt' -print0 | xargs -0 shasum -a 256 > SHA256SUMS-macos.txt)
       - uses: actions/upload-artifact@v7
         with:
           name: release-macos
