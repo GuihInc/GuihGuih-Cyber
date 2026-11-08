@@ -4,7 +4,7 @@
 |---|---|---|
 | M1 | Scanner desktop + logs | Abre, escaneia fixtures sintéticas, reporta SHA-256, cancela, registra histórico, testes passam |
 | M2 | Monitoramento + quarentena | Monitora apenas pastas permitidas, apresenta alertas, restaura arquivo sem perda após confirmação |
-| M3 | Inteligência externa opcional | Mock e integração com licença habilitada; cache/quota e erros testados, sem upload automático |
+| M3 | Regras locais complementares | Integração opcional YARA-X/ClamAV, executada offline e com licenças verificadas |
 | M4 | Ransomware e backup | Detecta cenários simulados, reduz falso alerta e restaura backups de teste |
 | M5 | IA própria | Pipeline reprodutível, origem licenciada de dados, métricas publicadas, inferência local verificável |
 | M6 | Eventos de IP/rede | Lê logs simulados e reais autorizados, correlaciona, não confunde IP com identidade |

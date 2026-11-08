@@ -3,7 +3,7 @@
 Você é a equipe de engenharia do **GuihGuih Cyber**, um antivírus e sistema de defesa digital multiplataforma. Leia `AGENTS.md` e todos os arquivos em `docs/` antes de implementar.
 
 ## Visão
-Construir um software sério e verificável para Windows, Linux e macOS, com interface profissional, proteção de arquivos, detecção de malware e comportamentos suspeitos, camada de IA própria, integração **opcional e devidamente licenciada** com VirusTotal, análise de eventos de rede e painel móvel autenticado.
+Construir um software sério e verificável para Windows, Linux e macOS, com interface profissional, proteção de arquivos, detecção local de malware e comportamentos suspeitos, camada de IA própria, análise de eventos de rede e painel móvel autenticado. Não incluir consultas a serviços externos de reputação.
 
 Não quero só um design: cada botão da interface deve ter uma ação verdadeira. Não anuncie funcionalidades como concluídas sem teste e implementação.
 
@@ -22,7 +22,7 @@ Não quero só um design: cada botão da interface deve ter uma ação verdadeir
 2. **Proteção de arquivos:** monitoramento de diretórios configurados; avaliação de criação/alteração; quarentena reversível; não executar amostras; mecanismos para impedir troca de arquivos entre varredura e ação; logs e undo.
 3. **Ransomware Guard:** detecção explicável de alterações rápidas e em massa, extensões incomuns e padrões de renomeação; alertas; proteção/backup versionado opt-in, teste de restauração; não prometer bloquear todos os ataques.
 4. **GuihGuih AI:** motor híbrido com regras explicáveis e classificação local opcional. Criar pipeline de extração de features, datasets com proveniência, separação temporal entre treino e teste, FPR/FNR, precision/recall, curva PR, calibração, validação em ambientes distintos, versionamento e assinatura do modelo. Exibir motivo e nível de incerteza; IA não pode ser única razão para excluir arquivo.
-5. **VirusTotal:** implementar interface adaptadora para API v3 com chave protegida, `GET /files/{sha256}` e, conforme licenciamento e consentimento, `GET /ip_addresses/{ip}` e domínio. Limitar chamadas, aplicar cache e mensagens de erro/quota. Sem envio automático de arquivos, URLs privadas ou IPs internos. A API pública não pode integrar um produto antivírus substituto ou comercial; manter conector DESABILITADO até licença apropriada; criar mock para testes.
+5. **Inteligência externa:** não implementar consultas, uploads ou conectores para serviços externos de reputação nesta versão. Toda detecção deve permanecer local e explicável.
 6. **Hacker / Network Detection:** coletar somente logs dos próprios serviços, endpoints e firewalls autorizados; registrar IP de origem, horário UTC, protocolo/porta, sistema afetado e regra acionada; correlacionar eventos de força bruta, varredura e picos de tráfego; consulta reputacional opcional; filtros para IPs locais, NAT e VPN. Nunca afirmar identidade ou endereço residencial de pessoas a partir de um IP. Bloqueio só opt-in com revisão e reversão.
 7. **Privacy Vault:** cofre local com AES-256-GCM (ou AEAD equivalente bem auditado), chave derivada por Argon2id com salt e parâmetros seguros, escrita atômica, permissões mínimas, mecanismo de backup e restauração. Não armazenar senha em texto puro; não inventar recuperação de chave impossível.
 8. **Proteção do próprio app:** privilégios mínimos; entradas validadas; autenticação e autorização; assinaturas de regras/modelos/atualizações; logs sem segredos; retenção e exportação; tratamento de falhas; testes de path traversal, symlink e concorrência.
@@ -47,5 +47,5 @@ Depois de executar testes disponíveis, reporte:
 
 Não desenvolva todas as etapas em uma única implementação superficial. Deixe o próximo marco preparado, mas NÃO apresente recursos inexistentes como implementados.
 
-Leia também `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/VIRUSTOTAL.md`.
+Leia também `docs/ROADMAP.md`, `docs/SECURITY.md` e `docs/ARCHITECTURE.md`.
 

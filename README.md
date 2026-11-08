@@ -33,7 +33,7 @@ Os testes usam fixtures sintéticas. O marcador EICAR utilizado é texto inofens
 ## Recursos e limites
 
 - Funcionais: scanner manual, hash SHA-256, regras heurísticas explicáveis, cancelamento, histórico SQLite, monitoramento por polling em pastas escolhidas pelo usuário e quarentena por cópia com hash e restauração confirmada sem sobrescrita.
-- VirusTotal: integração removida do código e da interface.
+- Consultas e uploads para serviços externos de reputação não fazem parte do aplicativo.
 - GuihGuih AI: extração estática experimental, sem modelo treinado ou classificação.
 - YARA/ClamAV, eventos de rede, defesa ransomware, backups versionados e proteção pré-execução ainda não implementados.
 - Quarentena cria uma cópia e mantém o original; criptografia em repouso não está implementada.
@@ -41,4 +41,19 @@ Os testes usam fixtures sintéticas. O marcador EICAR utilizado é texto inofens
 - O workflow `.github/workflows/build.yml` executa testes e gera artefatos PyInstaller em runners de Windows, Linux e macOS. Esses builds ainda não foram executados nesta máquina.
 - Instaladores `.msi`/Setup, `.AppImage`, `.deb`, `.rpm`, `.dmg` e `.pkg` não foram produzidos. Assinatura/notarização exigem credenciais específicas.
 - Testado localmente apenas no Windows. Linux e macOS aguardam execução nos runners.
+
+## Builds instaláveis e releases
+
+Após mesclar as mudanças em `main`, crie uma tag de versão para iniciar a matriz de testes e builds nativos. A release só é publicada se os testes e os três jobs de empacotamento terminarem com sucesso:
+
+```bash
+git checkout main
+git pull
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+O workflow `.github/workflows/release.yml` publica `GuihGuihCyber.exe` e `GuihGuihCyber-Setup.exe` no Windows; `.AppImage`, `.deb` e `.rpm` no Linux; e `.dmg`, `.pkg` e `.app.zip` no macOS. Cada plataforma inclui arquivo SHA-256. São builds x64 no Windows/Linux e da arquitetura do runner `macos-latest` no macOS. Os jobs precisam passar; falhas não publicam uma release parcial.
+
+Os artefatos atuais são **não assinados**. Windows SmartScreen pode alertar; macOS pode bloquear a primeira abertura. A distribuição assinada exige certificado de assinatura Authenticode no Windows e Developer ID, perfil/certificado de instalador, credenciais App Store Connect e notarização para macOS. Esses segredos ainda não estão configurados no repositório, então assinatura e notarização não são realizadas pelo workflow. O pacote `.pkg` e o `.dmg` ainda precisam ser validados em máquinas limpas de cada SO antes de uso amplo.
 

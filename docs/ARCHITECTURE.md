@@ -16,7 +16,6 @@
                               |
             Logs, arquivos e conexões de sistemas próprios
 
-      Integrador VirusTotal opcional (licença + consentimento)
       PWA celular opcional (TLS + pareamento + sem exposição pública)
 
 * ML só depois de modelo treinado/validado; regras funcionam sem ele.
@@ -29,7 +28,7 @@
 - `crates/quarantine`: movimentação segura, hash pós-ação, manifesto, restauração revisada.
 - `crates/vault`: criptografia autenticada, derivação de chave e restauração.
 - `crates/network`: eventos normalizados dos próprios serviços e equipamentos autorizados.
-- `crates/intel`: adaptadores externos opt-in, quotas, políticas e cache.
+- Não há módulo de inteligência externa nesta versão; as detecções permanecem locais.
 - `crates/platform`: interfaces com cada SO, capacidades declaradas em runtime.
 - `apps/desktop`: Tauri/React/Ts, comunicação tipada e UI com estados verdadeiros.
 - `apps/mobile-dashboard`: PWA pareado, futuro.

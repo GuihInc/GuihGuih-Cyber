@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GuihGuih Cyber
+Comment=Scanner local de arquivos
+Exec=/opt/guihguih-cyber/GuihGuihCyber
+Terminal=false
+Categories=Utility;Security;
+Icon=guihguih-cyber
+
