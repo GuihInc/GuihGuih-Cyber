@@ -10,11 +10,12 @@ from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QMainWindow, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QListWidget, QStackedWidget)
+    QVBoxLayout, QWidget, QListWidget, QStackedWidget, QComboBox, QFormLayout)
 
 from .ai import MODEL_STATUS
 from .monitor import FolderMonitor
 from .quarantine import Quarantine
+from .ransomware import ChangeBurstDetector
 from .scanner import scan_path
 from .storage import HistoryStore
 
@@ -25,6 +26,7 @@ LOGO_PATH = Path(__file__).with_name("assets") / "logo.png"
 class Signals(QObject):
     completed = Signal(dict)
     monitor_event = Signal(str)
+    ransomware_alert = Signal(dict)
 
 
 class MainWindow(QMainWindow):
@@ -39,8 +41,15 @@ class MainWindow(QMainWindow):
         self.signals = Signals()
         self.signals.completed.connect(self.show_report)
         self.signals.monitor_event.connect(self.monitor_event)
+        self.signals.ransomware_alert.connect(self.show_ransomware_alert)
         self.cancel = threading.Event()
-        self.monitor = FolderMonitor(lambda p: self.signals.monitor_event.emit(str(p)))
+        self.ransomware_detector = ChangeBurstDetector(
+            threshold=self._ransomware_threshold_preference()
+        )
+        self.monitor = FolderMonitor(
+            self._on_monitored_change,
+            interval=self._monitor_interval_preference(),
+        )
         self._build()
         self.refresh_history()
         self.refresh_quarantine()
@@ -157,7 +166,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(scan_page)
 
         self.monitor_page = QWidget(); ml = QVBoxLayout(self.monitor_page); ml.setContentsMargins(32,28,32,24); ml.addWidget(self._title("Monitoramento de pastas", "Somente caminhos adicionados explicitamente"))
-        controls = QHBoxLayout(); add = QPushButton("Adicionar pasta"); add.clicked.connect(self.add_monitor_folder); controls.addWidget(add); start = QPushButton("Iniciar"); start.clicked.connect(self.start_monitor); controls.addWidget(start); stop = QPushButton("Parar"); stop.clicked.connect(self.monitor.stop); controls.addWidget(stop); ml.addLayout(controls)
+        controls = QHBoxLayout(); add = QPushButton("Adicionar pasta"); add.clicked.connect(self.add_monitor_folder); controls.addWidget(add); start = QPushButton("Iniciar"); start.clicked.connect(self.start_monitor); controls.addWidget(start); stop = QPushButton("Parar"); stop.clicked.connect(self.stop_monitor); controls.addWidget(stop); ml.addLayout(controls)
         self.mon_status = QLabel("Desligado"); ml.addWidget(self.mon_status); self.mon_events = QListWidget(); ml.addWidget(self.mon_events, 1)
         self.stack.addWidget(self.monitor_page)
 
@@ -165,15 +174,169 @@ class MainWindow(QMainWindow):
         quarantine_controls = QHBoxLayout(); qadd = QPushButton("Adicionar cópia à quarentena…"); qadd.clicked.connect(self.quarantine_file); quarantine_controls.addWidget(qadd); restore = QPushButton("Restaurar selecionado…"); restore.clicked.connect(self.restore_selected); quarantine_controls.addWidget(restore); ql.addLayout(quarantine_controls)
         self.qtable = QTableWidget(0, 3); self.qtable.setHorizontalHeaderLabels(["ID", "Origem", "SHA-256"]); self.qtable.horizontalHeader().setStretchLastSection(True); self.qtable.horizontalHeader().setSectionResizeMode(1, self.qtable.horizontalHeader().ResizeMode.Stretch); ql.addWidget(self.qtable,1); self.stack.addWidget(self.quarantine_page)
 
-        for title, detail in [("Histórico", "Sessões SQLite locais"), ("GuihGuih AI", "Experimental · sem modelo treinado"), ("Rede", "Não implementado"), ("Ransomware", "Não implementado"), ("Configurações", "Configurações avançadas ainda não implementadas")]:
+        for title, detail in [("Histórico", "Sessões SQLite locais"), ("GuihGuih AI", "Experimental · sem modelo treinado"), ("Rede", "Não implementado")]:
             page = QWidget(); pl = QVBoxLayout(page); pl.setContentsMargins(32,28,32,24); pl.addWidget(self._title(title, detail))
             if title == "Histórico":
                 self.history = QTableWidget(0,5); self.history.setHorizontalHeaderLabels(["Sessão", "Data UTC", "Caminho", "Arquivos", "Achados"]); self.history.horizontalHeader().setStretchLastSection(True); self.history.horizontalHeader().setSectionResizeMode(2, self.history.horizontalHeader().ResizeMode.Stretch); pl.addWidget(self.history,1)
             else:
-                note = QLabel(self._feature_note(title)); note.setWordWrap(True); note.setObjectName("muted"); pl.addWidget(note)
+                note = QLabel(self._feature_note(title)); note.setWordWrap(True); note.setObjectName("muted"); note.setProperty("class", "featureNote"); pl.addWidget(note)
             pl.addStretch(); self.stack.addWidget(page)
+        self._build_ransomware_page()
+        self._build_settings_page()
         nav.setCurrentRow(0)
         self.setStyleSheet(STYLE)
+
+    def _monitor_interval_preference(self):
+        raw = self.store.get_preference("monitor_poll_interval", "2.0")
+        try:
+            interval = float(raw)
+        except (TypeError, ValueError):
+            return 2.0
+        return interval if interval in (1.0, 2.0, 5.0) else 2.0
+
+    def _ransomware_threshold_preference(self):
+        raw = self.store.get_preference("ransomware_change_threshold", "20")
+        try:
+            threshold = int(raw)
+        except (TypeError, ValueError):
+            return 20
+        return threshold if threshold in (10, 20, 50) else 20
+
+    def _build_ransomware_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 24)
+        layout.setSpacing(16)
+        layout.addWidget(self._title(
+            "Monitor de alterações rápidas",
+            "Heurística local experimental para pastas que você adicionou ao Monitoramento",
+        ))
+        status = self._card(
+            "ALERTA LOCAL · SEM BLOQUEIO",
+            "Detecção de rajadas de alterações",
+            "Avisa quando muitos arquivos existentes mudam rapidamente. O monitor usa polling e pode não observar todas as operações.",
+        )
+        layout.addWidget(status)
+        self.ransomware_status = QLabel("Aguardando alterações nas pastas monitoradas.")
+        self.ransomware_status.setObjectName("muted")
+        self.ransomware_status.setWordWrap(True)
+        layout.addWidget(self.ransomware_status)
+        self.ransomware_alerts = QListWidget()
+        self.ransomware_alerts.setAccessibleName("Alertas locais de alterações rápidas")
+        layout.addWidget(self.ransomware_alerts, 1)
+        note = QLabel(
+            "Para usar: adicione uma pasta e inicie o monitoramento na página Monitoramento. "
+            "Este recurso não bloqueia processos, não restaura arquivos e não detecta todos os ataques. "
+            "Use o antivírus nativo do sistema em conjunto. Alertas são salvos localmente."
+        )
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.stack.addWidget(page)
+        self.refresh_ransomware_alerts()
+
+    def refresh_ransomware_alerts(self):
+        if not hasattr(self, "ransomware_alerts"):
+            return
+        self.ransomware_alerts.clear()
+        for alert in self.store.recent_security_alerts(50):
+            self.ransomware_alerts.addItem(self._format_ransomware_alert(alert))
+
+    @staticmethod
+    def _format_ransomware_alert(alert):
+        timestamp = alert["created_at"].replace("T", " ").split(".")[0]
+        return (
+            f"{timestamp} UTC · {alert['event_count']} arquivos diferentes em "
+            f"{alert['window_seconds']:g} s · {alert['rule_id']}"
+        )
+
+    def _on_monitored_change(self, path):
+        self.signals.monitor_event.emit(str(path))
+        alert = self.ransomware_detector.record_change(str(path))
+        if alert:
+            alert["rule_id"] = "LOCAL-CHANGE-BURST"
+            alert["id"] = self.store.save_security_alert(alert)
+            self.signals.ransomware_alert.emit(alert)
+
+    def show_ransomware_alert(self, alert):
+        self.ransomware_status.setText(
+            f"Alerta: {alert['event_count']} arquivos diferentes alterados em "
+            f"{alert['window_seconds']:g} segundos. Revise a atividade."
+        )
+        self.ransomware_alerts.insertItem(0, self._format_ransomware_alert(alert))
+
+    def _build_settings_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 24)
+        layout.setSpacing(16)
+        layout.addWidget(self._title("Configurações", "Preferências locais do GuihGuih Cyber"))
+
+        privacy = self._card(
+            "PRIVACIDADE",
+            "Seus dados ficam neste dispositivo",
+            "Histórico e preferências são salvos localmente em SQLite. O app não envia arquivos ou hashes para serviços externos.",
+        )
+        privacy.setProperty("class", "settingsCard")
+        layout.addWidget(privacy)
+
+        monitor_card = QFrame()
+        monitor_card.setObjectName("card")
+        form = QFormLayout(monitor_card)
+        form.setContentsMargins(18, 16, 18, 16)
+        form.setHorizontalSpacing(24)
+        form.setVerticalSpacing(12)
+        heading = QLabel("Frequência do monitoramento")
+        heading.setObjectName("cardTitle")
+        form.addRow(heading)
+        self.monitor_interval = QComboBox()
+        self.monitor_interval.addItem("1 segundo · mais frequente", 1.0)
+        self.monitor_interval.addItem("2 segundos · equilibrado", 2.0)
+        self.monitor_interval.addItem("5 segundos · menor uso de recursos", 5.0)
+        active_interval = self._monitor_interval_preference()
+        self.monitor_interval.setCurrentIndex(
+            next(i for i in range(self.monitor_interval.count()) if self.monitor_interval.itemData(i) == active_interval)
+        )
+        form.addRow("Verificar pastas autorizadas a cada", self.monitor_interval)
+        self.ransomware_threshold = QComboBox()
+        self.ransomware_threshold.addItem("10 arquivos diferentes em 10 s · sensível", 10)
+        self.ransomware_threshold.addItem("20 arquivos diferentes em 10 s · equilibrado", 20)
+        self.ransomware_threshold.addItem("50 arquivos diferentes em 10 s · menos alertas", 50)
+        active_threshold = self._ransomware_threshold_preference()
+        self.ransomware_threshold.setCurrentIndex(
+            next(i for i in range(self.ransomware_threshold.count()) if self.ransomware_threshold.itemData(i) == active_threshold)
+        )
+        form.addRow("Alertar a partir de", self.ransomware_threshold)
+        self.settings_feedback = QLabel("A preferência é salva neste dispositivo e vale para o monitoramento configurado.")
+        self.settings_feedback.setObjectName("muted")
+        self.settings_feedback.setWordWrap(True)
+        form.addRow(self.settings_feedback)
+        save = QPushButton("Salvar preferência")
+        save.setObjectName("primary")
+        save.clicked.connect(self.save_settings)
+        form.addRow(save)
+        layout.addWidget(monitor_card)
+
+        limitations = self._card(
+            "ESTADO REAL",
+            "Recursos ainda em desenvolvimento",
+            "A GuihGuih AI não tem modelo treinado. Rede e proteção contra ransomware ainda não estão implementadas. Esta tela não ativa proteção em tempo real.",
+        )
+        layout.addWidget(limitations)
+        layout.addStretch()
+        self.stack.addWidget(page)
+
+    def save_settings(self):
+        interval = float(self.monitor_interval.currentData())
+        self.store.set_preference("monitor_poll_interval", str(interval))
+        self.monitor.interval = interval
+        self.settings_feedback.setText(
+            f"Preferências salvas: polling a cada {self.monitor_interval.currentData():g} s; "
+            f"alerta a partir de {self.ransomware_threshold.currentData()} alterações por 10 s."
+        )
+        self.ransomware_detector.threshold = int(self.ransomware_threshold.currentData())
+        self.settings_feedback.setStyleSheet("color:#80ffd1;")
+        self.store.set_preference("ransomware_change_threshold", str(self.ransomware_detector.threshold))
 
     def _logo(self, size):
         label = QLabel()
@@ -191,7 +354,7 @@ class MainWindow(QMainWindow):
         box = QFrame(); box.setObjectName("card"); l = QVBoxLayout(box); a=QLabel(kicker); a.setObjectName("accent"); b=QLabel(title); b.setObjectName("cardTitle"); c=QLabel(detail); c.setObjectName("muted"); l.addWidget(a); l.addWidget(b); l.addWidget(c); return box
 
     def _feature_note(self, title):
-        notes = {"GuihGuih AI": f"Estado: {MODEL_STATUS}. Extração estática experimental disponível; nenhum modelo foi treinado ou validado, então não há classificação de IA.", "Rede": "Coleta de eventos de serviços autorizados, reputação e bloqueio não implementados.", "Ransomware": "Detecção comportamental e backups versionados não implementados.", "Configurações": "Preferências de retenção e limites ainda não disponíveis."}
+        notes = {"GuihGuih AI": f"Estado: {MODEL_STATUS}. Extração estática experimental disponível; nenhum modelo foi treinado ou validado, então não há classificação de IA.", "Rede": "Coleta de eventos de serviços autorizados, reputação e bloqueio não implementados.", "Ransomware": "Detecção comportamental e backups versionados não implementados."}
         return notes.get(title, "")
 
     def choose_scan(self, folder):
@@ -239,8 +402,16 @@ class MainWindow(QMainWindow):
             except (OSError, ValueError) as exc: QMessageBox.warning(self,"Pasta inválida",str(exc))
 
     def start_monitor(self):
-        try: self.monitor.start(); self.mon_status.setText("Ativo · alterações detectadas por polling local")
+        try:
+            self.monitor.start()
+            self.mon_status.setText("Ativo · alterações detectadas por polling local")
+            self.ransomware_status.setText("Heurística ativa · observando mudanças em arquivos nas pastas escolhidas.")
         except ValueError as exc: QMessageBox.information(self,"Monitoramento",str(exc))
+
+    def stop_monitor(self):
+        self.monitor.stop()
+        self.mon_status.setText("Desligado")
+        self.ransomware_status.setText("Monitoramento desligado; os alertas heurísticos estão pausados.")
 
     def monitor_event(self, path): self.mon_events.addItem(f"Alteração: {path} · considere executar uma verificação")
 
@@ -299,6 +470,9 @@ QFrame#hero {
 QLabel#heroTitle { font-size:29px; font-weight:800; }
 QFrame#card { background:#102338; border:1px solid #23465f; border-radius:11px; padding:12px; }
 QLabel#cardTitle { font-size:18px; font-weight:700; }
+QComboBox { background:#0c1d30; color:#ebf6ff; border:1px solid #335b75; border-radius:7px; padding:9px 11px; min-width:270px; }
+QComboBox:focus, QComboBox:hover { border-color:#43e1f2; }
+QComboBox QAbstractItemView { background:#0c1d30; color:#ebf6ff; selection-background-color:#194961; border:1px solid #335b75; }
 QPushButton { background:#15334c; color:#ebf6ff; border:1px solid #335b75; border-radius:8px; padding:10px 13px; }
 QPushButton:hover, QPushButton:focus { border-color:#43e1f2; }
 QPushButton:pressed { background:#204b62; }

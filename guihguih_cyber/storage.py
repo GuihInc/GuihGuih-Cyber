@@ -33,6 +33,8 @@ class HistoryStore:
             db.execute("CREATE TABLE IF NOT EXISTS scans (id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, root_path TEXT NOT NULL, files_scanned INTEGER NOT NULL, findings INTEGER NOT NULL, errors INTEGER NOT NULL, cancelled INTEGER NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS scan_files (id INTEGER PRIMARY KEY, scan_id INTEGER NOT NULL REFERENCES scans(id), path TEXT NOT NULL, sha256 TEXT, size INTEGER NOT NULL, status TEXT NOT NULL, findings_json TEXT NOT NULL, error TEXT)")
             db.execute("CREATE TABLE IF NOT EXISTS quarantine (id TEXT PRIMARY KEY, original_path TEXT NOT NULL, stored_path TEXT NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL, state TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS security_alerts (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, rule_id TEXT NOT NULL, event_count INTEGER NOT NULL, window_seconds REAL NOT NULL)")
             db.commit()
         finally:
             db.close()
@@ -58,3 +60,45 @@ class HistoryStore:
         finally:
             db.close()
 
+    def get_preference(self, key: str, default: str | None = None) -> str | None:
+        db = self._connect()
+        try:
+            row = db.execute("SELECT value FROM preferences WHERE key = ?", (key,)).fetchone()
+            return row["value"] if row else default
+        finally:
+            db.close()
+
+    def set_preference(self, key: str, value: str) -> None:
+        db = self._connect()
+        try:
+            db.execute(
+                "INSERT INTO preferences(key, value) VALUES(?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    def save_security_alert(self, alert: dict) -> int:
+        db = self._connect()
+        try:
+            cursor = db.execute(
+                "INSERT INTO security_alerts(created_at, rule_id, event_count, window_seconds) "
+                "VALUES(?, ?, ?, ?)",
+                (alert["created_at"], alert["rule_id"], alert["event_count"], alert["window_seconds"]),
+            )
+            db.commit()
+            return int(cursor.lastrowid)
+        finally:
+            db.close()
+
+    def recent_security_alerts(self, limit: int = 50) -> list[dict]:
+        db = self._connect()
+        try:
+            rows = db.execute(
+                "SELECT * FROM security_alerts ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            db.close()

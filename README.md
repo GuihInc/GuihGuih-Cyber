@@ -35,9 +35,11 @@ Os testes usam fixtures sintéticas. O marcador EICAR utilizado é texto inofens
 ## Recursos e limites
 
 - Funcionais: scanner manual, hash SHA-256, regras heurísticas explicáveis, cancelamento, histórico SQLite, monitoramento por polling em pastas escolhidas pelo usuário e quarentena por cópia com hash e restauração confirmada sem sobrescrita.
+- Configurações: intervalo do polling (1, 2 ou 5 s) e sensibilidade do alerta de mudanças rápidas, persistidos localmente.
+- Monitor experimental contra rajadas: alerta quando vários arquivos distintos em pastas monitoradas mudam em 10 s. É heurístico, depende do polling, pode gerar falsos positivos e não bloqueia nem restaura arquivos; não equivale a proteção anti-ransomware.
 - Consultas e uploads para serviços externos de reputação não fazem parte do aplicativo.
 - GuihGuih AI: extração estática experimental, sem modelo treinado ou classificação.
-- YARA/ClamAV, eventos de rede, defesa ransomware, backups versionados e proteção pré-execução ainda não implementados.
+- YARA/ClamAV, eventos de rede, detecção abrangente de ransomware, backups versionados e proteção pré-execução ainda não implementados.
 - Quarentena cria uma cópia e mantém o original; criptografia em repouso não está implementada.
 - Microsoft Defender e demais proteções nativas não são alterados.
 - A CI executa os testes automatizados em Windows, Linux e macOS. Consulte a página da versão para os pacotes disponíveis.
