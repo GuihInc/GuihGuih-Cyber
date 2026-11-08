@@ -5,7 +5,7 @@
 | M1 | Scanner desktop + logs | Abre, escaneia fixtures sintéticas, reporta SHA-256, cancela, registra histórico, testes passam |
 | M2 | Monitoramento + quarentena | Monitora apenas pastas permitidas, apresenta alertas, restaura arquivo sem perda após confirmação |
 | M3 | Regras locais complementares | Integração opcional YARA-X/ClamAV, executada offline e com licenças verificadas |
-| M4 | Ransomware e backup | Detecta cenários simulados, reduz falso alerta e restaura backups de teste |
+| M4 | Ransomware e backup | Detecta cenários simulados, reduz falso alerta e restaura backups de teste (pendente; existe apenas um alerta heurístico experimental para rajadas de alterações) |
 | M5 | IA própria | Pipeline reprodutível, origem licenciada de dados, métricas publicadas, inferência local verificável |
 | M6 | Eventos de IP/rede | Lê logs simulados e reais autorizados, correlaciona, não confunde IP com identidade |
 | M7 | Adapters de SO + celular | Declara capacidades por SO; acesso móvel somente autenticado e pareado |
@@ -18,4 +18,3 @@
 - Provar restauração da quarentena e recuperação do cofre a partir de backups de teste.
 - Adicionar CI por Windows, Linux e macOS quando runners disponíveis. Reportar quando alguma plataforma não foi testada.
 - Testes de dados de IA devem evitar vazamento entre conjuntos e medir falsos positivos em arquivos legítimos.
-

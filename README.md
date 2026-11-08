@@ -35,9 +35,11 @@ Os testes usam fixtures sintéticas. O marcador EICAR utilizado é texto inofens
 ## Recursos e limites
 
 - Funcionais: scanner manual, hash SHA-256, regras heurísticas explicáveis, cancelamento, histórico SQLite, monitoramento por polling em pastas escolhidas pelo usuário e quarentena por cópia com hash e restauração confirmada sem sobrescrita.
+- Configurações: intervalo do polling (1, 2 ou 5 s) e sensibilidade do alerta de mudanças rápidas, persistidos localmente.
+- Monitor experimental contra rajadas: alerta quando vários arquivos distintos em pastas monitoradas mudam em 10 s. É heurístico, depende do polling, pode gerar falsos positivos e não bloqueia nem restaura arquivos; não equivale a proteção anti-ransomware.
 - Consultas e uploads para serviços externos de reputação não fazem parte do aplicativo.
 - GuihGuih AI: extração estática experimental, sem modelo treinado ou classificação.
-- YARA/ClamAV, eventos de rede, defesa ransomware, backups versionados e proteção pré-execução ainda não implementados.
+- YARA/ClamAV, eventos de rede, detecção abrangente de ransomware, backups versionados e proteção pré-execução ainda não implementados.
 - Quarentena cria uma cópia e mantém o original; criptografia em repouso não está implementada.
 - Microsoft Defender e demais proteções nativas não são alterados.
 - A CI executa os testes automatizados em Windows, Linux e macOS. Consulte a página da versão para os pacotes disponíveis.
@@ -48,12 +50,7 @@ Baixe o pacote para seu sistema em [Releases](https://github.com/GuihInc/GuihGui
 
 O workflow `Build installers` gera prévias de instalação no pull request. Após mesclar as mudanças em `main`, crie uma tag que corresponda à versão em `pyproject.toml`. A publicação depende dos testes e da geração dos pacotes de todas as plataformas.
 
-```bash
-git checkout main
-git pull
-git tag v0.1.0
-git push origin v0.1.0
-```
+Atualize a versão em `pyproject.toml` e crie uma tag Git com o mesmo número (por exemplo, `v0.2.0`). Ao receber a tag, o GitHub Actions testa e compila os pacotes para as plataformas suportadas; a release é publicada apenas se os builds concluírem.
 
 | Plataforma | Arquivos | Como instalar |
 |---|---|---|
