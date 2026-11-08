@@ -50,12 +50,7 @@ Baixe o pacote para seu sistema em [Releases](https://github.com/GuihInc/GuihGui
 
 O workflow `Build installers` gera prévias de instalação no pull request. Após mesclar as mudanças em `main`, crie uma tag que corresponda à versão em `pyproject.toml`. A publicação depende dos testes e da geração dos pacotes de todas as plataformas.
 
-```bash
-git checkout main
-git pull
-git tag v0.1.0
-git push origin v0.1.0
-```
+Atualize a versão em `pyproject.toml` e crie uma tag Git com o mesmo número (por exemplo, `v0.2.0`). Ao receber a tag, o GitHub Actions testa e compila os pacotes para as plataformas suportadas; a release é publicada apenas se os builds concluírem.
 
 | Plataforma | Arquivos | Como instalar |
 |---|---|---|
