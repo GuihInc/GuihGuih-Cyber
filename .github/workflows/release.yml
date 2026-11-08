@@ -135,12 +135,13 @@ jobs:
           set -euo pipefail
           install -Dm755 dist/GuihGuihCyber package-root/opt/guihguih-cyber/GuihGuihCyber
           install -Dm644 packaging/linux/guihguih-cyber.desktop package-root/usr/share/applications/guihguih-cyber.desktop
+          sed -i 's/\r$//' package-root/usr/share/applications/guihguih-cyber.desktop
           install -Dm644 build/branding/guihguih-cyber.png package-root/usr/share/icons/hicolor/256x256/apps/guihguih-cyber.png
           install -Dm755 dist/GuihGuihCyber AppDir/usr/bin/GuihGuihCyber
           install -Dm755 packaging/linux/AppRun AppDir/AppRun
           sed -i 's/\r$//' AppDir/AppRun
           install -Dm644 build/branding/guihguih-cyber.png AppDir/guihguih-cyber.png
-          sed 's#^Exec=.*#Exec=AppRun#' packaging/linux/guihguih-cyber.desktop > AppDir/guihguih-cyber.desktop
+          sed -e 's/\r$//' -e 's#^Exec=.*#Exec=AppRun#' packaging/linux/guihguih-cyber.desktop > AppDir/guihguih-cyber.desktop
 
           deb="$PWD/dist/guihguih-cyber_${APP_VERSION}_amd64.deb"
           rpm="$PWD/dist/guihguih-cyber-${APP_VERSION}-1.x86_64.rpm"
