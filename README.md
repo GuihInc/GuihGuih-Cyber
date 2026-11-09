@@ -38,7 +38,8 @@ Os testes usam fixtures sintéticas. O marcador EICAR utilizado é texto inofens
 - Configurações: intervalo do polling (1, 2 ou 5 s) e sensibilidade do alerta de mudanças rápidas, persistidos localmente.
 - Monitor experimental contra rajadas: alerta quando vários arquivos distintos em pastas monitoradas mudam em 10 s. É heurístico, depende do polling, pode gerar falsos positivos e não bloqueia nem restaura arquivos; não equivale a proteção anti-ransomware.
 - Consultas e uploads para serviços externos de reputação não fazem parte do aplicativo.
-- GuihGuih AI: extração estática experimental, sem modelo treinado ou classificação.
+- GuihGuih AI: tela funcional de triagem local da última verificação, com explicações de regras acionadas, indicação de erros e sugestões cautelosas de revisão. Essa triagem é determinística, não é IA generativa nem modelo de aprendizado de máquina; não produz pontuação ou veredito de segurança e não envia dados.
+- Modelo de classificação local: ainda indisponível. Nenhum modelo foi treinado/validado e nenhuma classificação por IA é feita; a página informa esse estado explicitamente.
 - YARA/ClamAV, eventos de rede, detecção abrangente de ransomware, backups versionados e proteção pré-execução ainda não implementados.
 - Quarentena cria uma cópia e mantém o original; criptografia em repouso não está implementada.
 - Microsoft Defender e demais proteções nativas não são alterados.
