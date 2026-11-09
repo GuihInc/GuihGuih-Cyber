@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, Q
     QMainWindow, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QListWidget, QStackedWidget, QComboBox, QFormLayout)
 
-from .ai import MODEL_STATUS
+from .ai import MODEL_STATUS, analyze_scan_report
 from .monitor import FolderMonitor
 from .quarantine import Quarantine
 from .ransomware import ChangeBurstDetector
@@ -37,6 +37,7 @@ class MainWindow(QMainWindow):
         self.resize(1120, 730)
         self.setMinimumSize(870, 625)
         self.store = store if store is not None else HistoryStore()
+        self.last_report = None
         self.quarantine = Quarantine(self.store)
         self.signals = Signals()
         self.signals.completed.connect(self.show_report)
@@ -174,13 +175,14 @@ class MainWindow(QMainWindow):
         quarantine_controls = QHBoxLayout(); qadd = QPushButton("Adicionar cópia à quarentena…"); qadd.clicked.connect(self.quarantine_file); quarantine_controls.addWidget(qadd); restore = QPushButton("Restaurar selecionado…"); restore.clicked.connect(self.restore_selected); quarantine_controls.addWidget(restore); ql.addLayout(quarantine_controls)
         self.qtable = QTableWidget(0, 3); self.qtable.setHorizontalHeaderLabels(["ID", "Origem", "SHA-256"]); self.qtable.horizontalHeader().setStretchLastSection(True); self.qtable.horizontalHeader().setSectionResizeMode(1, self.qtable.horizontalHeader().ResizeMode.Stretch); ql.addWidget(self.qtable,1); self.stack.addWidget(self.quarantine_page)
 
-        for title, detail in [("Histórico", "Sessões SQLite locais"), ("GuihGuih AI", "Experimental · sem modelo treinado"), ("Rede", "Não implementado")]:
+        for title, detail in [("Histórico", "Sessões SQLite locais"), ("Rede", "Não implementado")]:
             page = QWidget(); pl = QVBoxLayout(page); pl.setContentsMargins(32,28,32,24); pl.addWidget(self._title(title, detail))
             if title == "Histórico":
                 self.history = QTableWidget(0,5); self.history.setHorizontalHeaderLabels(["Sessão", "Data UTC", "Caminho", "Arquivos", "Achados"]); self.history.horizontalHeader().setStretchLastSection(True); self.history.horizontalHeader().setSectionResizeMode(2, self.history.horizontalHeader().ResizeMode.Stretch); pl.addWidget(self.history,1)
             else:
                 note = QLabel(self._feature_note(title)); note.setWordWrap(True); note.setObjectName("muted"); note.setProperty("class", "featureNote"); pl.addWidget(note)
             pl.addStretch(); self.stack.addWidget(page)
+        self._build_ai_page()
         self._build_ransomware_page()
         self._build_settings_page()
         nav.setCurrentRow(0)
@@ -201,6 +203,65 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             return 20
         return threshold if threshold in (10, 20, 50) else 20
+
+    def _build_ai_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 24)
+        layout.setSpacing(14)
+        layout.addWidget(self._title(
+            "GuihGuih AI",
+            "Triagem local explicável · modelo de IA ainda indisponível",
+        ))
+        layout.addWidget(self._card(
+            "MODO ATUAL · REGRAS LOCAIS",
+            "Assistente de revisão dos resultados",
+            "Resume regras acionadas, explica limitações e sugere próximos passos. A análise não envia dados, não executa arquivos e não é uma classificação por aprendizado de máquina.",
+        ))
+        self.ai_summary = QLabel("Faça uma verificação e depois selecione 'Analisar última verificação'.")
+        self.ai_summary.setObjectName("muted")
+        self.ai_summary.setWordWrap(True)
+        layout.addWidget(self.ai_summary)
+        self.ai_button = QPushButton("Analisar última verificação")
+        self.ai_button.setObjectName("primary")
+        self.ai_button.setEnabled(False)
+        self.ai_button.clicked.connect(self.analyze_latest_scan)
+        layout.addWidget(self.ai_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.ai_observations = QListWidget()
+        self.ai_observations.setAccessibleName("Explicações locais dos resultados da verificação")
+        layout.addWidget(self.ai_observations, 1)
+        note = QLabel(
+            f"Estado do modelo: {MODEL_STATUS}. Nenhum modelo foi treinado ou validado; "
+            "não há previsão de IA, pontuação de risco ou veredito de segurança. "
+            "A triagem é determinística e baseada somente nas regras exibidas pelo scanner. "
+            "Não exclui arquivos automaticamente e não substitui o Microsoft Defender ou outro antivírus."
+        )
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.stack.addWidget(page)
+
+    def analyze_latest_scan(self):
+        if not self.last_report:
+            self.ai_summary.setText("Nenhuma verificação disponível. Execute uma verificação local primeiro.")
+            return
+        result = analyze_scan_report(self.last_report)
+        self.ai_observations.clear()
+        for item in result["observations"]:
+            marker = {"review": "REVISAR", "info": "INFORMATIVO", "incomplete": "INCOMPLETO"}.get(item["level"], "OBSERVAÇÃO")
+            self.ai_observations.addItem(
+                f"{marker} · {item['title']}\n{item['reason']}\nPróximo passo: {item['action']}"
+            )
+        if not result["observations"]:
+            self.ai_observations.addItem(
+                "Nenhuma regra local foi acionada nos arquivos analisados. Isso não prova que sejam seguros."
+            )
+        state = " · verificação cancelada" if result["cancelled"] else ""
+        self.ai_summary.setText(
+            f"Triagem local da última verificação: {result['files_scanned']} arquivos, "
+            f"{result['finding_count']} achados por regras, {result['error_count']} erros, "
+            f"{len(result['observations'])} observações{state}. Nenhum arquivo foi enviado."
+        )
 
     def _build_ransomware_page(self):
         page = QWidget()
@@ -374,6 +435,10 @@ class MainWindow(QMainWindow):
         self.signals.completed.emit(report)
 
     def show_report(self, report):
+        self.last_report = report
+        if hasattr(self, "ai_button"):
+            self.ai_button.setEnabled(True)
+            self.ai_summary.setText("Verificação concluída. Selecione 'Analisar última verificação' para ver explicações locais.")
         self.results.setRowCount(0)
         for result in report["files"]:
             row=self.results.rowCount(); self.results.insertRow(row)
